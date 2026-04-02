@@ -21,7 +21,7 @@ export async function POST(request: Request) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          access_key: process.env.WEB3FORMS_KEY || "",
+          access_key: process.env.WEB3FORMS_KEY || "7ec08303-325f-4c82-ad68-6e64c18b3e2d",
           subject: `New Admission Enquiry - ${name} | ACADEMIA`,
           from_name: "ACADEMIA LMS",
           to_email: TEACHER_EMAIL,
