@@ -86,7 +86,6 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
       }
-      // Fetch user from DB to get role
       if (token.email) {
         try {
           const dbUser = await prisma.user.findUnique({
@@ -104,11 +103,14 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id as string;
-        session.user.role = token.role as string;
+      const s = session as typeof session & {
+        user: { id?: string; role?: string };
+      };
+      if (s.user) {
+        s.user.id = token.id as string;
+        s.user.role = token.role as string;
       }
-      return session;
+      return s;
     },
   },
   pages: {
