@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 
 const TEACHER_EMAIL = "souravbwn77@gmail.com";
 
@@ -15,25 +14,14 @@ export async function POST(request: Request) {
       );
     }
 
-    // Store in database
-    const enquiry = await prisma.enquiry.create({
-      data: {
-        name,
-        className,
-        medium,
-        contact,
-        email,
-        course,
-      },
-    });
-
-    // Send email notification using Web3Forms (free, no signup needed)
+    // Send email notification using Web3Forms (free email service)
+    let emailSent = false;
     try {
-      await fetch("https://api.web3forms.com/submit", {
+      const emailResponse = await fetch("https://api.web3forms.com/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          access_key: process.env.WEB3FORMS_KEY || "YOUR_FREE_KEY",
+          access_key: process.env.WEB3FORMS_KEY || "",
           subject: `New Admission Enquiry - ${name} | ACADEMIA`,
           from_name: "ACADEMIA LMS",
           to_email: TEACHER_EMAIL,
@@ -44,33 +32,39 @@ export async function POST(request: Request) {
           contact: contact,
           email: email,
           course: course,
-          message: `
-New Admission Enquiry Received
-
-Student Details:
-- Name: ${name}
-- Class: ${className}
-- Medium: ${medium}
-- Contact: ${contact}
-- Email: ${email}
-- Desired Course: ${course}
-
-Please contact the student at ${contact} or reply to ${email}.
-
----
-This email was sent from ACADEMIA LMS
-          `.trim(),
+          message: `New Admission Enquiry Received\n\nStudent Details:\n- Name: ${name}\n- Class: ${className}\n- Medium: ${medium}\n- Contact: ${contact}\n- Email: ${email}\n- Desired Course: ${course}\n\nPlease contact the student at ${contact} or reply to ${email}.\n\n---\nThis email was sent from ACADEMIA LMS`,
         }),
       });
+      const emailData = await emailResponse.json();
+      emailSent = emailData.success === true;
     } catch (emailError) {
       console.error("Email notification failed:", emailError);
-      // Don't fail the request if email fails
+    }
+
+    // Try to store in database (gracefully handle if DB is not connected)
+    let dbSaved = false;
+    try {
+      const { prisma } = await import("@/lib/prisma");
+      await prisma.enquiry.create({
+        data: {
+          name,
+          className,
+          medium,
+          contact,
+          email,
+          course,
+        },
+      });
+      dbSaved = true;
+    } catch (dbError) {
+      console.error("Database save failed (non-critical):", dbError);
     }
 
     return NextResponse.json({
       success: true,
       message: "Enquiry submitted successfully",
-      id: enquiry.id,
+      emailSent,
+      dbSaved,
     });
   } catch (error) {
     console.error("Enrollment error:", error);
@@ -83,17 +77,14 @@ This email was sent from ACADEMIA LMS
 
 export async function GET() {
   try {
+    const { prisma } = await import("@/lib/prisma");
     const enquiries = await prisma.enquiry.findMany({
       orderBy: { createdAt: "desc" },
       take: 50,
     });
-
     return NextResponse.json(enquiries);
   } catch (error) {
     console.error("Fetch enquiries error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch enquiries" },
-      { status: 500 }
-    );
+    return NextResponse.json([]);
   }
 }
