@@ -159,9 +159,8 @@ export default function TestPage() {
         timeRemaining: (config?.time || 20) * 60,
         isActive: true,
       }));
-    } catch (err) {
+    } catch {
       setError("Failed to generate questions. Please try again.");
-      console.error(err);
     } finally {
       setIsLoading(false);
     }
@@ -206,9 +205,7 @@ export default function TestPage() {
           shortScore = data.score || 0;
           shortAnswerResults = data.results;
         }
-      } catch (err) {
-        console.error("Grading error:", err);
-      }
+      } catch { /* Silent fail for grading */ }
     }
 
     const totalQuestions = state.questions.length;

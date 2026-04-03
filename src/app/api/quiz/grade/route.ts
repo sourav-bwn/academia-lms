@@ -1,113 +1,50 @@
 import { NextResponse } from "next/server";
 
-async function fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
-  for (let i = 0; i < retries; i++) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-    
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      
-      if (response.status === 429) {
-        await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
-        continue;
-      }
-      return response;
-    } catch (err) {
-      clearTimeout(timeoutId);
-      if (i === retries - 1) throw err;
-      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-    }
-  }
-  throw new Error("Max retries exceeded");
-}
-
-interface GradingQuestion {
-  question: string;
-  correctAnswer: string;
-  userAnswer: string;
-}
-
-interface ShortAnswerResult {
-  question: string;
-  userAnswer: string;
-  correctAnswer: string;
-  isCorrect: boolean;
-  feedback: string;
-  score: number;
-}
+export const runtime = "nodejs";
+export const maxDuration = 30;
 
 export async function POST(request: Request) {
   try {
     const { questions } = await request.json();
 
     if (!questions || !Array.isArray(questions)) {
-      return NextResponse.json(
-        { error: "Questions array is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Questions array is required" }, { status: 400 });
     }
 
     const apiKey = process.env.OPENROUTER_API_KEY;
-
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "AI API key not configured" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "AI API key not configured" }, { status: 500 });
     }
 
-    const prompt = `You are an expert English teacher for Indian competitive exams. You need to grade short answer questions and provide detailed feedback.
+    const prompt = `Grade these ${questions.length} short answers. For each: determine correct/incorrect, explain mistakes if wrong, give score 0-100.
+Return JSON: [{"question":"Q","userAnswer":"A","correctAnswer":"CA","isCorrect":false,"feedback":"explanation","score":50}]`;
 
-For each question, analyze:
-1. Compare student's answer with the correct answer
-2. Determine if the answer is correct or incorrect
-3. If incorrect, explain the mistake and provide the correct answer
-4. Give a score (0-100) based on accuracy
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-Questions to grade:
-${questions
-  .map(
-    (q: GradingQuestion, i: number) =>
-      `Q${i + 1}: ${q.question}\nCorrect Answer: ${q.correctAnswer}\nStudent Answer: ${q.userAnswer}`
-  )
-  .join("\n\n")}
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": "https://academia-lms-nine.vercel.app",
+        "X-Title": "ACADEMIA LMS",
+      },
+      body: JSON.stringify({
+        model: "nvidia/nemotron-3-nano-30b-a3b:free",
+        messages: [
+          { role: "system", content: questions.map((q) => 
+            `Q: ${q.question}\nCorrect: ${q.correctAnswer}\nAnswer: ${q.userAnswer}`).join("\n\n")
+          },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.3,
+        max_tokens: 1024,
+      }),
+      signal: controller.signal,
+    });
 
-Return ONLY a valid JSON array with objects in the same order as the questions. Each object must have:
-- question: the question text
-- userAnswer: what the student wrote
-- correctAnswer: the correct answer
-- isCorrect: true/false
-- feedback: If correct, a brief positive message. If incorrect, explain what was wrong and provide the correct answer.
-- score: number 0-100
-
-Format:
-[
-  {"question":"...","userAnswer":"...","correctAnswer":"...","isCorrect":false,"feedback":"Your answer was incorrect because... The correct answer is...","score":50}
-]`;
-
-    const response = await fetchWithRetry(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-          "HTTP-Referer": "https://academia-lms-nine.vercel.app",
-          "X-Title": "ACADEMIA LMS",
-        },
-        body: JSON.stringify({
-          model: "nvidia/nemotron-3-super-120b-a12b:free",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.3,
-          max_tokens: 2048,
-        }),
-      }
-    );
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error("Grading API error");
@@ -121,18 +58,13 @@ Format:
     }
 
     const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    const results: ShortAnswerResult[] = JSON.parse(cleaned);
+    const results = JSON.parse(cleaned) as { score: number }[];
 
-    const totalScore = Math.round(
-      results.reduce((sum, r) => sum + r.score, 0) / results.length
-    );
+    const totalScore = Math.round(results.reduce((sum, r) => sum + r.score, 0) / results.length);
 
     return NextResponse.json({ score: totalScore, results });
   } catch (error) {
     console.error("Grading error:", error);
-    return NextResponse.json(
-      { error: "Failed to grade answers" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to grade answers" }, { status: 500 });
   }
 }
