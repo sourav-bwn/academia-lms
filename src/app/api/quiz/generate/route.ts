@@ -246,6 +246,96 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Topic is required" }, { status: 400 });
     }
 
+    // Find the right bank
+    let bank: Record<string, any[]> = {};
+    
+    // Try various subject keys
+    const subjectKeys = [subject, subject + 's', subject.replace('general knowledge', 'gk')];
+    for (const key of subjectKeys) {
+      if (ALL_BANKS[key]) {
+        bank = ALL_BANKS[key];
+        break;
+      }
+    }
+    
+    // If no bank found, search all banks for the topic
+    let questions: any[] = [];
+    
+    if (Object.keys(bank).length > 0) {
+      // Direct topic match
+      questions = bank[topic] || [];
+      
+      // Case insensitive search
+      if (questions.length === 0) {
+        for (const key of Object.keys(bank)) {
+          if (key.toLowerCase() === topic.toLowerCase()) {
+            questions = bank[key];
+            break;
+          }
+        }
+      }
+      
+      // Partial match
+      if (questions.length === 0) {
+        for (const key of Object.keys(bank)) {
+          if (key.toLowerCase().includes(topic.toLowerCase()) || topic.toLowerCase().includes(key.toLowerCase())) {
+            questions = bank[key];
+            break;
+          }
+        }
+      }
+      
+      // Fallback to first available topic
+      if (questions.length === 0 && Object.keys(bank).length > 0) {
+        const firstKey = Object.keys(bank)[0];
+        questions = bank[firstKey];
+      }
+    }
+
+    // Last resort - get from any bank
+    if (questions.length === 0) {
+      for (const b of Object.values(ALL_BANKS)) {
+        const keys = Object.keys(b);
+        if (keys.length > 0) {
+          questions = b[keys[0]];
+          break;
+        }
+      }
+    }
+
+    console.log("[Generate] Found:", questions.length, "questions for", topic);
+
+    if (questions.length === 0) {
+      return NextResponse.json({ 
+        error: "No questions available",
+        debug: { subject, topic }
+      }, { status: 404 });
+    }
+
+    // Shuffle and return requested count
+    const shuffled = [...questions].sort(() => Math.random() - 0.5);
+    const selected = shuffled.slice(0, questionCount);
+
+    const formattedQuestions = selected.map((q, index) => ({
+      id: `q-${index}`,
+      question: q.question,
+      options: q.options,
+      correctAnswer: q.correctAnswer,
+      type: "mcq" as const,
+    }));
+
+    console.log("[Generate] Returning", formattedQuestions.length, "questions");
+
+    return NextResponse.json({ questions: formattedQuestions, isStatic: true });
+  } catch (err) {
+    console.error("[Generate] Error:", err);
+    return NextResponse.json({ 
+      error: "Failed to generate questions",
+      details: err instanceof Error ? err.message : "Unknown"
+    }, { status: 500 });
+  }
+}
+
     // Try to find questions
     let questions: any[] = [];
     
