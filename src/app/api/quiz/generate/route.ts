@@ -1,19 +1,20 @@
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  
+  if (!apiKey) {
+    return NextResponse.json({ error: "AI API key not configured. Please contact admin." }, { status: 500 });
+  }
+
   try {
     const { subject, topic, questionCount = 10 } = await request.json();
 
     if (!topic) {
       return NextResponse.json({ error: "Topic is required" }, { status: 400 });
-    }
-
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: "AI API key not configured" }, { status: 500 });
     }
 
     const subjectContext = getSubjectContext(subject, topic);
@@ -23,46 +24,71 @@ export async function POST(request: Request) {
 Rules: First ${mcqCount} MCQ (A,B,C,D + answer + explanation), last 3 short answer (no options + correct answer).
 Return ONLY JSON array: [{"question":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"correctAnswer":"A","explanation":"...","type":"mcq"},{"question":"...","type":"short","correctAnswer":"..."}]`;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    // Try up to 2 times
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25000);
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-        "HTTP-Referer": "https://academia-lms-nine.vercel.app",
-        "X-Title": "ACADEMIA LMS",
-      },
-      body: JSON.stringify({
-        model: "nvidia/nemotron-3-nano-30b-a3b:free",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.7,
-        max_tokens: 3000,
-      }),
-      signal: controller.signal,
-    });
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+            "HTTP-Referer": "https://academia-lms-nine.vercel.app",
+            "X-Title": "ACADEMIA LMS",
+          },
+          body: JSON.stringify({
+            model: "nvidia/nemotron-3-nano-30b-a3b:free",
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.7,
+            max_tokens: 3000,
+          }),
+          signal: controller.signal,
+        });
 
-    clearTimeout(timeoutId);
+        clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+        if (!response.ok) {
+          if (attempt === 1) {
+            return NextResponse.json({ error: `AI service temporarily unavailable. Please try again.` }, { status: 503 });
+          }
+          continue;
+        }
+
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content;
+
+        if (!text) {
+          if (attempt === 1) {
+            return NextResponse.json({ error: "AI returned empty response. Please try again." }, { status: 500 });
+          }
+          continue;
+        }
+
+        const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+        const questions = JSON.parse(cleaned);
+
+        if (!Array.isArray(questions) || questions.length === 0) {
+          if (attempt === 1) {
+            return NextResponse.json({ error: "Invalid questions format. Please try again." }, { status: 500 });
+          }
+          continue;
+        }
+
+        return NextResponse.json({ questions });
+      } catch (err) {
+        console.error(`Attempt ${attempt + 1} failed:`, err);
+        if (attempt === 1) {
+          return NextResponse.json({ error: "Connection timeout. Please try again." }, { status: 504 });
+        }
+      }
     }
 
-    const data = await response.json();
-    const text = data.choices?.[0]?.message?.content;
-
-    if (!text) {
-      throw new Error("No response from AI");
-    }
-
-    const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    const questions = JSON.parse(cleaned);
-
-    return NextResponse.json({ questions });
+    return NextResponse.json({ error: "Failed to generate questions. Please try again." }, { status: 500 });
   } catch (error) {
     console.error("Quiz generation error:", error);
-    return NextResponse.json({ error: "Failed to generate quiz. Please try again." }, { status: 500 });
+    return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 }
 

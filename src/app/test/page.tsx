@@ -136,11 +136,11 @@ export default function TestPage() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to generate questions");
-      }
-
       const data = await response.json();
+
+      if (!response.ok || data.error) {
+        throw new Error(data.error || "Failed to generate questions");
+      }
 
       const questions: Question[] = data.questions.map(
         (q: GeneratedQuestion, idx: number) => ({
@@ -159,8 +159,9 @@ export default function TestPage() {
         timeRemaining: (config?.time || 20) * 60,
         isActive: true,
       }));
-    } catch {
-      setError("Failed to generate questions. Please try again.");
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to generate questions. Please try again.";
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
