@@ -11,7 +11,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const apiKey = process.env.OPENROUTER_API_KEY || "REMOVED_FOR_SECURITY";
+    const apiKey = process.env.OPENROUTER_API_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "AI API key not configured. Please add OPENROUTER_API_KEY to environment variables." },
+        { status: 500 }
+      );
+    }
 
     const subjectContext = getSubjectContext(subject, topic);
     
