@@ -41,6 +41,14 @@ interface GeneratedQuestion {
   explanation?: string;
 }
 
+interface ShortAnswerResult {
+  question: string;
+  userAnswer: string;
+  correctAnswer: string;
+  isCorrect: boolean;
+  feedback: string;
+}
+
 interface TestState {
   subject: SubjectId | null;
   chapter: Chapter | null;
@@ -58,6 +66,7 @@ interface TestState {
     mcqCorrect: number;
     shortAnswerScore: number;
     xpEarned: number;
+    shortAnswerResults?: ShortAnswerResult[];
   } | null;
 }
 
@@ -161,6 +170,8 @@ export default function TestPage() {
   const handleSubmitTest = async () => {
     if (!state.questions.length) return;
 
+    setIsLoading(true);
+
     const mcqQuestions = state.questions.filter((q) => q.type === "mcq");
     let mcqCorrect = 0;
 
@@ -174,6 +185,7 @@ export default function TestPage() {
 
     const shortQuestions = state.questions.filter((q) => q.type === "short");
     let shortScore = 0;
+    let shortAnswerResults: ShortAnswerResult[] | undefined;
 
     if (shortQuestions.length > 0) {
       try {
@@ -192,6 +204,7 @@ export default function TestPage() {
         if (response.ok) {
           const data = await response.json();
           shortScore = data.score || 0;
+          shortAnswerResults = data.results;
         }
       } catch (err) {
         console.error("Grading error:", err);
@@ -214,8 +227,11 @@ export default function TestPage() {
         mcqCorrect,
         shortAnswerScore: shortScore,
         xpEarned,
+        shortAnswerResults,
       },
     }));
+
+    setIsLoading(false);
   };
 
   const formatTime = (seconds: number) => {
@@ -318,32 +334,47 @@ export default function TestPage() {
               {state.questions
                 .filter((q) => q.type === "short")
                 .map((q, idx) => {
-                  const userAnswer = state.shortAnswers[q.id] || "";
-                  const isCorrect =
-                    userAnswer.toLowerCase().trim() ===
-                    q.correctAnswer.toLowerCase().trim();
+                  const result = state.results?.shortAnswerResults?.[idx];
                   return (
                     <div
                       key={q.id}
-                      className="flex justify-between items-center p-4 rounded-2xl bg-surface-container-low"
+                      className="rounded-2xl overflow-hidden"
                     >
-                      <div className="flex items-center gap-3">
-                        {isCorrect ? (
-                          <CheckCircle className="w-5 h-5 text-green-500" />
-                        ) : (
-                          <XCircle className="w-5 h-5 text-red-500" />
-                        )}
-                        <span className="font-bold text-on-surface">
-                          Short Q{idx + 1}
+                      <div className="flex justify-between items-center p-4 bg-surface-container-low">
+                        <div className="flex items-center gap-3">
+                          {result?.isCorrect ? (
+                            <CheckCircle className="w-5 h-5 text-green-500" />
+                          ) : (
+                            <XCircle className="w-5 h-5 text-red-500" />
+                          )}
+                          <span className="font-bold text-on-surface">
+                            Short Q{idx + 1}
+                          </span>
+                        </div>
+                        <span
+                          className={`font-black ${
+                            result?.isCorrect ? "text-green-500" : "text-red-500"
+                          }`}
+                        >
+                          {result?.isCorrect ? "Correct" : "Incorrect"}
                         </span>
                       </div>
-                      <span
-                        className={`font-black ${
-                          isCorrect ? "text-green-500" : "text-red-500"
-                        }`}
-                      >
-                        {isCorrect ? "Correct" : "Incorrect"}
-                      </span>
+                      {result && (
+                        <div className="p-4 bg-surface-container-lowest border-t border-outline-variant/10">
+                          <div className="mb-3">
+                            <p className="text-xs font-bold text-on-surface-variant mb-1">Your Answer:</p>
+                            <p className="text-sm text-on-surface">{result.userAnswer || "(No answer)"}</p>
+                          </div>
+                          <div className="mb-3">
+                            <p className="text-xs font-bold text-on-surface-variant mb-1">Correct Answer:</p>
+                            <p className="text-sm text-primary font-bold">{result.correctAnswer}</p>
+                          </div>
+                          <div className="p-3 rounded-xl bg-gradient-to-r from-primary/5 to-primary-container/10 border border-primary/10">
+                            <p className="text-xs font-bold text-primary mb-1">Feedback:</p>
+                            <p className="text-sm text-on-surface">{result.feedback}</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -497,9 +528,17 @@ export default function TestPage() {
             {state.currentIndex === state.questions.length - 1 ? (
               <button
                 onClick={handleSubmitTest}
-                className="px-8 py-3 rounded-2xl font-bold text-white bg-gradient-to-r from-primary to-primary-container shadow-lg shadow-primary/20 hover:scale-105 transition-transform"
+                disabled={isLoading}
+                className="px-8 py-3 rounded-2xl font-bold text-white bg-gradient-to-r from-primary to-primary-container shadow-lg shadow-primary/20 hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                Submit Test
+                {isLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                    Grading...
+                  </>
+                ) : (
+                  "Submit Test"
+                )}
               </button>
             ) : (
               <button

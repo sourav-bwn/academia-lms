@@ -32,6 +32,15 @@ interface GradingQuestion {
   userAnswer: string;
 }
 
+interface ShortAnswerResult {
+  question: string;
+  userAnswer: string;
+  correctAnswer: string;
+  isCorrect: boolean;
+  feedback: string;
+  score: number;
+}
+
 export async function POST(request: Request) {
   try {
     const { questions } = await request.json();
@@ -52,9 +61,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const prompt = `You are an English teacher grading student answers. Evaluate each answer and give a score (0-100) based on accuracy and relevance.
-    
-Questions and answers to grade:
+    const prompt = `You are an expert English teacher for Indian competitive exams. You need to grade short answer questions and provide detailed feedback.
+
+For each question, analyze:
+1. Compare student's answer with the correct answer
+2. Determine if the answer is correct or incorrect
+3. If incorrect, explain the mistake and provide the correct answer
+4. Give a score (0-100) based on accuracy
+
+Questions to grade:
 ${questions
   .map(
     (q: GradingQuestion, i: number) =>
@@ -62,8 +77,18 @@ ${questions
   )
   .join("\n\n")}
 
-Return ONLY a valid JSON array with scores in the same order as the questions:
-[85, 70, 90] (one score per question)`;
+Return ONLY a valid JSON array with objects in the same order as the questions. Each object must have:
+- question: the question text
+- userAnswer: what the student wrote
+- correctAnswer: the correct answer
+- isCorrect: true/false
+- feedback: If correct, a brief positive message. If incorrect, explain what was wrong and provide the correct answer.
+- score: number 0-100
+
+Format:
+[
+  {"question":"...","userAnswer":"...","correctAnswer":"...","isCorrect":false,"feedback":"Your answer was incorrect because... The correct answer is...","score":50}
+]`;
 
     const response = await fetchWithRetry(
       "https://openrouter.ai/api/v1/chat/completions",
@@ -79,7 +104,7 @@ Return ONLY a valid JSON array with scores in the same order as the questions:
           model: "nvidia/nemotron-3-super-120b-a12b:free",
           messages: [{ role: "user", content: prompt }],
           temperature: 0.3,
-          max_tokens: 1024,
+          max_tokens: 2048,
         }),
       }
     );
@@ -96,13 +121,13 @@ Return ONLY a valid JSON array with scores in the same order as the questions:
     }
 
     const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    const scores = JSON.parse(cleaned);
+    const results: ShortAnswerResult[] = JSON.parse(cleaned);
 
-    const averageScore = Math.round(
-      scores.reduce((a: number, b: number) => a + b, 0) / scores.length
+    const totalScore = Math.round(
+      results.reduce((sum, r) => sum + r.score, 0) / results.length
     );
 
-    return NextResponse.json({ score: averageScore, scores });
+    return NextResponse.json({ score: totalScore, results });
   } catch (error) {
     console.error("Grading error:", error);
     return NextResponse.json(
