@@ -3,7 +3,13 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-const grammarQuestions: Record<string, any[]> = {
+interface Question {
+  question: string;
+  options: Record<string, string>;
+  correctAnswer: string;
+}
+
+const grammarQuestions: Record<string, Question[]> = {
   "Tenses": [
     { question: "She ____ to the market every morning.", options: { A: "go", B: "goes", C: "going", D: "gone" }, correctAnswer: "B" },
     { question: "If it rains, we ____ the picnic.", options: { A: "cancel", B: "cancels", C: "will cancel", D: "cancelling" }, correctAnswer: "C" },
@@ -66,7 +72,7 @@ const grammarQuestions: Record<string, any[]> = {
   ]
 };
 
-const gkQuestions: Record<string, any[]> = {
+const gkQuestions: Record<string, Question[]> = {
   "Indian History": [
     { question: "Who was the first Emperor of the Maurya Empire?", options: { A: "Bindusara", B: "Ashoka", C: "Chandragupta Maurya", D: "Chanakya" }, correctAnswer: "C" },
     { question: "The Battle of Plassey was fought in which year?", options: { A: "1757", B: "1764", C: "1857", D: "1947" }, correctAnswer: "A" },
@@ -141,7 +147,7 @@ const gkQuestions: Record<string, any[]> = {
   ]
 };
 
-const mathQuestions: Record<string, any[]> = {
+const mathQuestions: Record<string, Question[]> = {
   "Number System": [
     { question: "What is the place value of 7 in the number 47,358?", options: { A: "7", B: "70", C: "700", D: "7000" }, correctAnswer: "D" },
     { question: "Which is the smallest prime number?", options: { A: "0", B: "1", C: "2", D: "3" }, correctAnswer: "C" },
@@ -216,21 +222,13 @@ const mathQuestions: Record<string, any[]> = {
   ]
 };
 
-const ALL_BANKS: Record<string, Record<string, any[]>> = {
+const ALL_BANKS: Record<string, Record<string, Question[]>> = {
   grammar: grammarQuestions,
   gk: gkQuestions,
   history: gkQuestions,
   reasoning: grammarQuestions,
   mathematics: mathQuestions,
   quiz: gkQuestions,
-  // Also support full names
-  "general knowledge": gkQuestions,
-  "grammar": grammarQuestions,
-  "history": gkQuestions,
-  "reasoning": grammarQuestions,
-  "mathematics": mathQuestions,
-  "math": mathQuestions,
-  "quiz": gkQuestions,
 };
 
 export async function POST(request: Request) {
@@ -247,7 +245,7 @@ export async function POST(request: Request) {
     }
 
     // Find the right bank
-    let bank: Record<string, any[]> = {};
+    let bank: Record<string, Question[]> = {};
     
     // Try various subject keys
     const subjectKeys = [subject, subject + 's', subject.replace('general knowledge', 'gk')];
@@ -259,7 +257,7 @@ export async function POST(request: Request) {
     }
     
     // If no bank found, search all banks for the topic
-    let questions: any[] = [];
+    let questions: Question[] = [];
     
     if (Object.keys(bank).length > 0) {
       // Direct topic match
@@ -309,76 +307,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ 
         error: "No questions available",
         debug: { subject, topic }
-      }, { status: 404 });
-    }
-
-    // Shuffle and return requested count
-    const shuffled = [...questions].sort(() => Math.random() - 0.5);
-    const selected = shuffled.slice(0, questionCount);
-
-    const formattedQuestions = selected.map((q, index) => ({
-      id: `q-${index}`,
-      question: q.question,
-      options: q.options,
-      correctAnswer: q.correctAnswer,
-      type: "mcq" as const,
-    }));
-
-    console.log("[Generate] Returning", formattedQuestions.length, "questions");
-
-    return NextResponse.json({ questions: formattedQuestions, isStatic: true });
-  } catch (err) {
-    console.error("[Generate] Error:", err);
-    return NextResponse.json({ 
-      error: "Failed to generate questions",
-      details: err instanceof Error ? err.message : "Unknown"
-    }, { status: 500 });
-  }
-}
-
-    // Try to find questions
-    let questions: any[] = [];
-    
-    // Direct lookup
-    if (ALL_BANKS[subject as keyof typeof ALL_BANKS]) {
-      const bank = ALL_BANKS[subject as keyof typeof ALL_BANKS];
-      questions = bank[topic] || [];
-    }
-
-    // If not found, try case-insensitive
-    if (questions.length === 0) {
-      const banks = Object.values(ALL_BANKS);
-      for (const bank of banks) {
-        for (const key of Object.keys(bank)) {
-          if (key.toLowerCase() === topic.toLowerCase()) {
-            questions = bank[key];
-            break;
-          }
-        }
-        if (questions.length > 0) break;
-      }
-    }
-
-    // Fallback to any matching topic
-    if (questions.length === 0) {
-      const banks = Object.values(ALL_BANKS);
-      for (const bank of banks) {
-        for (const key of Object.keys(bank)) {
-          if (key.toLowerCase().includes(topic.toLowerCase()) || topic.toLowerCase().includes(key.toLowerCase())) {
-            questions = bank[key];
-            break;
-          }
-        }
-        if (questions.length > 0) break;
-      }
-    }
-
-    console.log("[Generate] Found:", questions.length, "questions for", topic);
-
-    if (questions.length === 0) {
-      return NextResponse.json({ 
-        error: "No questions available for this topic",
-        debug: { subject, topic, questionCount }
       }, { status: 404 });
     }
 

@@ -124,28 +124,58 @@ export default function TestPage() {
 
     try {
       const config = TEST_CONFIGS.find((c) => c.id === state.configId);
-      const subject = SUBJECTS.find((s) => s.id === state.subject);
 
-      console.log("Generating questions for:", state.subject, state.chapter);
+      console.log("Generating questions for:", state.subject, state.chapter, "count:", config?.questions);
 
       const response = await fetch("/api/quiz/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          subject: state.subject, // Send ID like "grammar", "gk"
+          subject: state.subject,
           topic: state.chapter,
           questionCount: config?.questions || 15,
         }),
       });
 
+      console.log("API Response Status:", response.status);
       const data = await response.json();
-      
-      console.log("API Response:", data);
+      console.log("API Response Data:", data);
 
       if (!response.ok || data.error) {
         console.error("API Error:", data.error);
         throw new Error(data.error || "Failed to generate questions");
       }
+
+      if (!data.questions || data.questions.length === 0) {
+        throw new Error("No questions returned from API");
+      }
+
+      const questions: Question[] = data.questions.map(
+        (q: GeneratedQuestion, idx: number) => ({
+          id: `q-${idx}`,
+          question: q.question,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          explanation: q.explanation,
+          type: data.isStatic ? "mcq" : (idx < (config?.questions || 15) - 5 ? "mcq" : "short"),
+        })
+      );
+
+      console.log("Mapped questions:", questions.length);
+
+      setState((prev) => ({
+        ...prev,
+        questions,
+        timeRemaining: (config?.time || 20) * 60,
+        isActive: true,
+      }));
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to generate questions. Please try again.";
+      console.error("Generate error:", err);
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
 
       if (!data.questions || data.questions.length === 0) {
         throw new Error("No questions returned");
