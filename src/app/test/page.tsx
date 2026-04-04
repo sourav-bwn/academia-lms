@@ -141,12 +141,18 @@ export default function TestPage() {
       const data = await response.json();
       console.log("API Response Data:", data);
 
-      if (!response.ok || data.error) {
-        console.error("API Error:", data.error);
-        throw new Error(data.error || "Failed to generate questions");
+      if (!response.ok) {
+        console.error("HTTP Error:", response.status, data);
+        throw new Error(`HTTP ${response.status}: ${data.error || "Failed to fetch"}`);
       }
 
-      if (!data.questions || data.questions.length === 0) {
+      if (data.error) {
+        console.error("API Error:", data.error);
+        throw new Error(data.error);
+      }
+
+      if (!data.questions || !Array.isArray(data.questions) || data.questions.length === 0) {
+        console.error("No questions in response:", data);
         throw new Error("No questions returned from API");
       }
 
@@ -157,7 +163,8 @@ export default function TestPage() {
           options: q.options,
           correctAnswer: q.correctAnswer,
           explanation: q.explanation,
-          type: data.isStatic ? "mcq" : (idx < (config?.questions || 15) - 5 ? "mcq" : "short"),
+          // All questions from our static bank are MCQ
+          type: "mcq" as const,
         })
       );
 
@@ -170,8 +177,8 @@ export default function TestPage() {
         isActive: true,
       }));
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to generate questions. Please try again.";
       console.error("Generate error:", err);
+      const errorMessage = err instanceof Error ? err.message : "Failed to generate questions";
       setError(errorMessage);
     } finally {
       setIsLoading(false);
